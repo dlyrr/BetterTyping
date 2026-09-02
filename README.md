@@ -9,6 +9,14 @@ An [Equicord](https://github.com/Equicord/Equicord) userplugin that tidies up yo
 
 **Links**
 
+- **Linkifies bare domains**: typing `nohello.net` sends a real link. Only real top-level domains count, checked against
+  [IANA's live list](https://data.iana.org/TLD/tlds-alpha-by-domain.txt) (with a built-in fallback if it cannot be fetched), so
+  `foo.notatld`, `index.js` and `v1.0` are left alone; `.zip` and `.mov` are skipped on purpose because they are usually file names.
+  Emails, mentions and existing links are never touched. Choose how it looks:
+  - *Replace the text with the link*: `nohello.net` → `https://nohello.net`
+  - *Keep the text, hide the link inside it*: `nohello.net` → `[nohello.net](https://nohello.net)`
+
+  The result then goes through the two steps below, so `open.spotify.com/track/x?si=abc` ends up as a clean `open.fxspotify.com` link.
 - **Clears tracking parameters** using the live [ClearURLs rules](https://github.com/ClearURLs/Rules) (`utm_*`, Spotify `si`, Twitter `s`/`t`, ...).
   The rules also apply to links that are already on a fixer host, so `open.fxspotify.com/track/...?si=...` loses its `si` too.
 - **Fixes embeds** by swapping the host for a mirror that Discord embeds properly:

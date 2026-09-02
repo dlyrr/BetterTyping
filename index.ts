@@ -24,6 +24,15 @@ const settings = definePluginSettings({
     },
 
     // ----- Links -----
+    linkifyDomains: {
+        type: OptionType.SELECT,
+        description: "Turn bare domains you type (nohello.net) into links. Only real top-level domains count, checked against IANA's list.",
+        options: [
+            { label: "Off", value: "off" },
+            { label: "Replace the text with the link — https://nohello.net", value: "replace", default: true },
+            { label: "Keep the text, hide the link inside it — [nohello.net](https://nohello.net)", value: "masked" },
+        ],
+    },
     clearTrackingParams: {
         type: OptionType.BOOLEAN,
         description: "Remove tracking parameters from links you send (ClearURLs rules).",
@@ -234,6 +243,52 @@ function clearTracking(match: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Linkify bare domains
+// ---------------------------------------------------------------------------
+
+const IANA_TLDS_URL = "https://data.iana.org/TLD/tlds-alpha-by-domain.txt";
+
+// Used until IANA's list arrives, or if it never does.
+const FALLBACK_TLDS = [
+    "com", "net", "org", "io", "dev", "app", "gg", "me", "co", "us", "uk", "ca", "de", "fr", "es", "it",
+    "nl", "se", "no", "fi", "dk", "pl", "ru", "jp", "kr", "cn", "in", "br", "mx", "au", "nz", "eu",
+    "info", "biz", "xyz", "tv", "fm", "ai", "sh", "to", "cc", "ly", "st", "moe", "wiki", "page", "site",
+    "online", "host", "cloud", "tech", "run", "live", "chat", "social", "art", "one", "top", "pro", "edu", "gov",
+];
+
+// TLDs that are far more often file extensions in chat than domains.
+const AMBIGUOUS_TLDS = new Set(["zip", "mov"]);
+
+let tlds = new Set(FALLBACK_TLDS);
+
+async function loadTlds() {
+    const text = await fetch(IANA_TLDS_URL).then(r => r.text());
+    const list = text
+        .split("\n")
+        .map(line => line.trim().toLowerCase())
+        .filter(line => line && !line.startsWith("#"));
+    if (list.length > 0) tlds = new Set(list);
+}
+
+// A bare domain, optionally with a path, that is not already part of a link,
+// an email or a mention. The lookbehind keeps "https://x.com", "bob@x.com"
+// and "@x.com" out of it; the lookahead stops before closing punctuation.
+const BARE_DOMAIN = /(?<![\w@/.:-])((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+)([a-z]{2,63}|xn--[a-z0-9-]+)(:\d{1,5})?(\/[^\s<]*[^\s<.,:;"'>)|\]])?(?=$|[\s.,;:!?)\]"'>])/gi;
+
+type LinkifyMode = "off" | "replace" | "masked";
+
+function linkifyDomains(text: string, mode: LinkifyMode): string {
+    if (mode === "off") return text;
+    return text.replace(BARE_DOMAIN, (whole, labels: string, tld: string, port = "", path = "") => {
+        const lower = tld.toLowerCase();
+        if (!tlds.has(lower) || AMBIGUOUS_TLDS.has(lower)) return whole;
+        const link = `https://${labels}${tld}${port}${path}`;
+        // Discord's masked-link markdown: the text stays, the link hides inside it.
+        return mode === "masked" ? `[${whole}](${link})` : link;
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Link pipeline
 // ---------------------------------------------------------------------------
 
@@ -242,6 +297,7 @@ function clearTracking(match: string): string {
 const URL_REGEX = /(<?)(https?:\/\/[^\s<]+[^<.,:;"'>)|\]\s])/g;
 
 function processLinks(text: string): string {
+    text = linkifyDomains(text, settings.store.linkifyDomains as LinkifyMode);
     if (!/https?:\/\//.test(text)) return text;
 
     const { clearTrackingParams, fixEmbeds } = settings.store;
@@ -575,11 +631,14 @@ export default definePlugin({
     settings,
 
     async start() {
-        try {
-            await createRules();
-        } catch (e) {
-            logger.error("Failed to fetch ClearURLs rules; tracking parameters will not be stripped", e);
-        }
+        await Promise.all([
+            createRules().catch(e =>
+                logger.error("Failed to fetch ClearURLs rules; tracking parameters will not be stripped", e)
+            ),
+            loadTlds().catch(e =>
+                logger.error("Failed to fetch IANA TLD list; using the built-in fallback for linkifying", e)
+            ),
+        ]);
     },
 
     stop() {

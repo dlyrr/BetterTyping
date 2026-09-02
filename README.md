@@ -10,6 +10,7 @@ an embed-fixer that rewrites links to their `fx` mirrors.
 **Links**
 
 - **Clears tracking parameters** using the live [ClearURLs rules](https://github.com/ClearURLs/Rules) (`utm_*`, Spotify `si`, Twitter `s`/`t`, ...).
+  The rules also apply to links that are already on a fixer host, so `open.fxspotify.com/track/...?si=...` loses its `si` too.
 - **Fixes embeds** by swapping the host for a mirror that Discord embeds properly:
 
   | You type | It sends |

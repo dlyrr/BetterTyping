@@ -108,14 +108,29 @@ function getEmbedFixes(): Record<string, string> {
     return fixes;
 }
 
+function lookupFix(fixes: Record<string, string>, host: string): string | undefined {
+    const lower = host.toLowerCase();
+    return fixes[lower] ?? fixes[lower.replace(/^www\./, "")];
+}
+
 function fixEmbedHost(url: string): string {
     const fixes = getEmbedFixes();
     return url.replace(/^(https?:\/\/)([^/?#:]+)/i, (whole, scheme: string, host: string) => {
-        const lower = host.toLowerCase();
-        const replacement = fixes[lower] ?? fixes[lower.replace(/^www\./, "")];
-        if (!replacement || replacement === lower) return whole;
+        const replacement = lookupFix(fixes, host);
+        if (!replacement || replacement === host.toLowerCase()) return whole;
         return scheme + replacement;
     });
+}
+
+// The ClearURLs rules are keyed on the original hosts, so a link that is
+// already on a fixer host (open.fxspotify.com/...?si=...) would slip past
+// them. This maps a fixer host back to the host its rules are written for.
+function originalHostFor(host: string): string | undefined {
+    const lower = host.toLowerCase();
+    for (const [from, to] of Object.entries(getEmbedFixes())) {
+        if (to === lower && from !== lower) return from;
+    }
+    return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +191,12 @@ function clearTracking(match: string): string {
     // Cheap way to check if there are any search params
     if (url.searchParams.entries().next().done) return match;
 
+    // Run the rules as if the link were still on its original host, then put
+    // the fixer host back afterwards.
+    const fixerHost = url.hostname;
+    const originalHost = originalHostFor(fixerHost);
+    if (originalHost) url.hostname = originalHost;
+
     for (const { urlPattern, exceptions, rawRules, rules: paramRules } of rules) {
         if (!urlPattern.test(url.href) || exceptions?.some(ex => ex.test(url.href))) continue;
 
@@ -194,6 +215,7 @@ function clearTracking(match: string): string {
         url = new URL(cleanedUrl);
     }
 
+    if (originalHost) url.hostname = fixerHost;
     return url.toString();
 }
 

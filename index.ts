@@ -73,6 +73,20 @@ const settings = definePluginSettings({
         stickToMarkers: false,
         default: 100,
     },
+
+    // ----- Typing style -----
+    typingStyle: {
+        type: OptionType.SELECT,
+        description: "Typing style. Restyles the letters of everything you send, applied last. Links, mentions, emoji, emails and code are never touched.",
+        options: [
+            { label: "Off (send as typed)", value: "off", default: true },
+            { label: "lowercase — \"hi wats going on\"", value: "lowercase" },
+            { label: "UPPERCASE — \"HI WATS GOING ON\"", value: "uppercase" },
+            { label: "Title Case — \"Hi Wats Going On\"", value: "titlecase" },
+            { label: "Sentence case — \"Hi wats going on. Ok\"", value: "sentencecase" },
+            { label: "aLtErNaTiNg — \"hI wAtS gOiNg On\"", value: "alternating" },
+        ],
+    },
 });
 
 // ---------------------------------------------------------------------------
@@ -439,6 +453,85 @@ function processWording(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Typing style (TypingStyles)
+// ---------------------------------------------------------------------------
+
+type TypingStyle = "off" | "lowercase" | "uppercase" | "titlecase" | "sentencecase" | "alternating";
+
+// Tokens that must be left exactly as typed. Changing the case of any of these
+// either breaks the link or stops Discord from resolving the mention/emoji.
+const PROTECTED_TOKEN = [
+    /[a-z][a-z0-9+.-]*:\/\//i, // any link with a scheme, even quoted or bracketed: https://…, <https://…>, ("https://…")
+    /(?:^|\W)www\./i, // schemeless links: www.example.com
+    /^<[@#a-z:]/i, // mentions and custom emoji: <@123>, <#123>, <:name:id>, <a:name:id>
+    /^:[a-z0-9_+-]+:$/i, // shortcode emoji: :smile:
+    /[^\s@]+@[^\s@]+\.[a-z]{2,}/i, // email addresses: bob@example.com
+    /__CODE_BLOCK_\d+__/i, // placeholders for code carved out of the message
+];
+
+function isProtected(token: string): boolean {
+    return PROTECTED_TOKEN.some(re => re.test(token));
+}
+
+// Uppercases the first *letter* rather than the first character, so leading
+// quotes, brackets and markdown get stepped over instead of swallowing the
+// capitalisation: '"hi there"' -> '"Hi there"', "**hi**" -> "**Hi**".
+function capitalizeFirstLetter(token: string): string {
+    return token.replace(/\p{L}/u, letter => letter.toUpperCase());
+}
+
+// Pronoun "I" and its contractions stay capitalised in sentence case.
+const PRONOUN_I = /^(\W*)i(?=$|\W|'(?:m|ll|ve|d)\b)/iu;
+
+function endsSentence(token: string): boolean {
+    return /[.!?…]["')\]]*$/.test(token);
+}
+
+function restyle(text: string, style: TypingStyle): string {
+    if (style === "off") return text;
+
+    // Walk the message as an alternating stream of whitespace and tokens so
+    // the styles that need context (sentence starts, letter parity) have it.
+    let startOfSentence = true;
+    let letterIndex = 0;
+
+    return text.replace(/\s+|\S+/g, token => {
+        if (/^\s+$/.test(token)) {
+            if (token.includes("\n")) startOfSentence = true;
+            return token;
+        }
+        if (isProtected(token)) {
+            startOfSentence = endsSentence(token);
+            return token;
+        }
+
+        let out: string;
+        switch (style) {
+            case "lowercase":
+                out = token.toLowerCase();
+                break;
+            case "uppercase":
+                out = token.toUpperCase();
+                break;
+            case "titlecase":
+                out = capitalizeFirstLetter(token);
+                break;
+            case "sentencecase":
+                out = token.toLowerCase().replace(PRONOUN_I, "$1I");
+                if (startOfSentence) out = capitalizeFirstLetter(out);
+                break;
+            case "alternating":
+                out = token.replace(/\p{L}/gu, letter =>
+                    letterIndex++ % 2 === 0 ? letter.toLowerCase() : letter.toUpperCase()
+                );
+                break;
+        }
+        startOfSentence = endsSentence(token);
+        return out;
+    });
+}
+
+// ---------------------------------------------------------------------------
 // Message pipeline
 // ---------------------------------------------------------------------------
 
@@ -457,8 +550,10 @@ function processMessage(input: string): string {
 
     text = processLinks(text);
     text = processWording(text);
+    text = restyle(text, settings.store.typingStyle as TypingStyle);
 
-    return text.replace(/__CODE_BLOCK_(\d+)__/g, (_, index) => codeBlocks[parseInt(index)]);
+    // Case-insensitive: a style may have restyled the placeholder itself.
+    return text.replace(/__CODE_BLOCK_(\d+)__/gi, (_, index) => codeBlocks[parseInt(index)]);
 }
 
 function onMessage(msg: MessageObject) {
@@ -467,7 +562,7 @@ function onMessage(msg: MessageObject) {
 
 export default definePlugin({
     name: "BetterTyping",
-    description: "Cleans tracking parameters from links, rewrites them to embed-fixing mirrors (fxspotify, fxapplemusic, fxtwitter, ...) and polishes your wording. See settings.",
+    description: "Cleans tracking parameters from links, rewrites them to embed-fixing mirrors (fxspotify, fxapplemusic, fxtwitter, ...), polishes your wording and restyles your typing (lowercase, Title Case, ...). See settings.",
     dependencies: ["MessageEventsAPI"],
     tags: ["Chat", "Privacy", "Utility"],
     authors: [

@@ -2,8 +2,8 @@
 
 An [Equicord](https://github.com/Equicord/Equicord) userplugin that tidies up your outgoing messages. It combines Equicord's built-in
 [ClearURLs](https://github.com/Equicord/Equicord/tree/main/src/plugins/clearURLs) and
-[PolishWording](https://github.com/Equicord/Equicord/tree/main/src/equicordplugins/polishWording) plugins into one, and adds
-an embed-fixer that rewrites links to their `fx` mirrors.
+[PolishWording](https://github.com/Equicord/Equicord/tree/main/src/equicordplugins/polishWording) plugins with
+[TypingStyles](https://github.com/dlyrr/TypingStyles) into one, and adds an embed-fixer that rewrites links to their `fx` mirrors.
 
 ## What it does
 
@@ -35,6 +35,19 @@ an embed-fixer that rewrites links to their `fx` mirrors.
 - Expand contractions (`don't` -> `do not`).
 - Capitalize sentences, with a blocklist of words to leave lowercase.
 - Add periods to the end of sentences, with an adjustable frequency.
+
+**Typing style** (from [TypingStyles](https://github.com/dlyrr/TypingStyles), applied last)
+
+| Style | `Hi Wats going On? i think i'm fine.` becomes |
+| --- | --- |
+| lowercase | `hi wats going on? i think i'm fine.` |
+| UPPERCASE | `HI WATS GOING ON? I THINK I'M FINE.` |
+| Title Case | `Hi Wats Going On? I Think I'm Fine.` |
+| Sentence case | `Hi wats going on? I think I'm fine.` |
+| aLtErNaTiNg | `hI wAtS gOiNg On? I tHiNk I'm FiNe.` |
+| Off (default) | sent exactly as typed |
+
+Links, mentions, emoji, emails and code keep their exact casing under every style, so they still resolve. Because the style runs last, it wins over the wording fixes above (lowercase will undo "Capitalize sentences", for instance).
 
 Code blocks and inline code are never touched. A **Quick disable** toggle turns everything off without a client reload.
 
